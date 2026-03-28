@@ -30,53 +30,6 @@ function DevBanner() {
   );
 }
 
-// ─── Item Navigator ───────────────────────────────────────────────────────────
-
-function ChevronUp() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-      stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="18 15 12 9 6 15" />
-    </svg>
-  );
-}
-
-function ChevronDown() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-      stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="6 9 12 15 18 9" />
-    </svg>
-  );
-}
-
-function ItemNavigator({ prevItemId, nextItemId, onNavigate, loading }) {
-  if (!prevItemId && !nextItemId) return null;
-
-  return (
-    <div className="item-nav">
-      <button
-        className="item-nav__btn"
-        disabled={!prevItemId || loading}
-        onClick={() => prevItemId && onNavigate(prevItemId)}
-        title="Item anterior"
-        aria-label="Item anterior"
-      >
-        <ChevronUp />
-      </button>
-      <button
-        className="item-nav__btn"
-        disabled={!nextItemId || loading}
-        onClick={() => nextItemId && onNavigate(nextItemId)}
-        title="Item siguiente"
-        aria-label="Item siguiente"
-      >
-        <ChevronDown />
-      </button>
-    </div>
-  );
-}
-
 // ─── Skeleton / Error ─────────────────────────────────────────────────────────
 
 function SkeletonLoader() {
@@ -116,46 +69,40 @@ function ErrorState({ message, onRetry }) {
 // ─── App principal ────────────────────────────────────────────────────────────
 
 export default function App() {
-  const [boardId, setBoardId]           = useState(null);
-  const [currentItemId, setCurrentItemId] = useState(null);
+  const [context, setContext]           = useState(null);
   const [item, setItem]                 = useState(null);
   const [boardColumns, setBoardColumns] = useState([]);
-  const [prevItemId, setPrevItemId]     = useState(null);
-  const [nextItemId, setNextItemId]     = useState(null);
   const [loading, setLoading]           = useState(true);
   const [error, setError]               = useState(null);
 
-  // Protección ante race conditions de cargas concurrentes
   const loadTokenRef = useRef(null);
 
-  // ── 1. Escuchar contexto de Monday ──────────────────────────────────────────
-  // Cuando Monday cambia el ítem activo (filtro, selección externa, etc.)
-  // este listener dispara y actualiza currentItemId.
+  // ── Contexto desde Monday SDK o mock de desarrollo ──
   useEffect(() => {
     if (IS_DEV_MOCK) {
-      setBoardId(import.meta.env.VITE_DEV_BOARD_ID);
-      setCurrentItemId(import.meta.env.VITE_DEV_ITEM_ID);
+      setContext({
+        boardId: import.meta.env.VITE_DEV_BOARD_ID,
+        itemId:  import.meta.env.VITE_DEV_ITEM_ID,
+      });
       return;
     }
     monday.listen("context", (res) => {
-      const { boardId: bid, itemId: iid } = res.data ?? {};
-      if (bid) setBoardId(String(bid));
-      if (iid) setCurrentItemId(String(iid));
+      const { boardId, itemId } = res.data ?? {};
+      if (boardId && itemId) {
+        setContext({ boardId: String(boardId), itemId: String(itemId) });
+      }
     });
   }, []);
 
-  // ── 2. Cargar datos cada vez que cambia el ítem actual ──────────────────────
+  // ── Cargar datos cada vez que cambia el contexto ──
   useEffect(() => {
-    if (!boardId || !currentItemId) return;
+    if (!context?.boardId || !context?.itemId) return;
     const token = Symbol();
     loadTokenRef.current = token;
-    // Carga de datos e ítems adyacentes en paralelo
-    loadItemData(boardId, currentItemId, token);
-    findAdjacentItems(boardId, currentItemId);
-  }, [boardId, currentItemId]);
+    loadItemData(context.boardId, context.itemId, token);
+  }, [context]);
 
-  // ── Carga completa del ítem ──────────────────────────────────────────────────
-  const loadItemData = async (bid, itemId, token) => {
+  const loadItemData = async (boardId, itemId, token) => {
     setLoading(true);
     setError(null);
     try {
@@ -165,7 +112,7 @@ export default function App() {
             id name
             column_values { id type text value }
           }
-          boards(ids: [${bid}]) {
+          boards(ids: [${boardId}]) {
             columns { id title type settings_str }
           }
         }
@@ -186,79 +133,15 @@ export default function App() {
     }
   };
 
-  // ── Busca el ítem anterior y siguiente con paginación cursor ─────────────────
-  // Recorre el tablero de 100 en 100 sin asumir ningún límite total.
-  const findAdjacentItems = async (bid, targetId) => {
-    setPrevItemId(null);
-    setNextItemId(null);
-    const PAGE = 100;
-    let cursor = null;
-    let prevId = null;
-    const target = String(targetId);
-
-    try {
-      for (;;) {
-        const cursorArg = cursor ? `, cursor: "${cursor}"` : "";
-        const res = await monday.api(`
-          query {
-            boards(ids: [${bid}]) {
-              items_page(limit: ${PAGE}${cursorArg}) {
-                cursor
-                items { id }
-              }
-            }
-          }
-        `);
-
-        const pageData = res.data?.boards?.[0]?.items_page;
-        const items    = pageData?.items ?? [];
-
-        for (let i = 0; i < items.length; i++) {
-          if (String(items[i].id) === target) {
-            setPrevItemId(prevId);
-
-            if (i + 1 < items.length) {
-              setNextItemId(String(items[i + 1].id));
-            } else if (pageData?.cursor) {
-              // El ítem actual es el último de esta página — pedir uno de la siguiente
-              const nextRes = await monday.api(`
-                query {
-                  boards(ids: [${bid}]) {
-                    items_page(limit: 1, cursor: "${pageData.cursor}") {
-                      items { id }
-                    }
-                  }
-                }
-              `);
-              const first = nextRes.data?.boards?.[0]?.items_page?.items?.[0];
-              setNextItemId(first ? String(first.id) : null);
-            }
-            return;
-          }
-          prevId = String(items[i].id);
-        }
-
-        cursor = pageData?.cursor;
-        if (!cursor) break;
-      }
-    } catch {
-      // silencioso — los botones no aparecen si falla
-    }
-  };
-
-  // ── Navegación interna — cambia estado sin llamar al SDK ────────────────────
-  const handleNavigate = (itemId) => {
-    setCurrentItemId(String(itemId));
-  };
-
-  // ── Guardar cambios ──────────────────────────────────────────────────────────
   const handleSave = async (columnValues) => {
+    const { boardId, itemId } = context;
     const colValsStr = JSON.stringify(columnValues);
+
     const res = await monday.api(`
       mutation {
         change_multiple_column_values(
           board_id: ${boardId},
-          item_id: ${currentItemId},
+          item_id: ${itemId},
           column_values: ${JSON.stringify(colValsStr)}
         ) { id }
       }
@@ -279,7 +162,7 @@ export default function App() {
 
     const token = Symbol();
     loadTokenRef.current = token;
-    await loadItemData(boardId, currentItemId, token);
+    await loadItemData(boardId, itemId, token);
   };
 
   // ── Render ────────────────────────────────────────────────────────────────────
@@ -290,11 +173,15 @@ export default function App() {
     return (
       <ErrorState
         message={error}
-        onRetry={() => {
-          const token = Symbol();
-          loadTokenRef.current = token;
-          loadItemData(boardId, currentItemId, token);
-        }}
+        onRetry={
+          context
+            ? () => {
+                const token = Symbol();
+                loadTokenRef.current = token;
+                loadItemData(context.boardId, context.itemId, token);
+              }
+            : null
+        }
       />
     );
   }
@@ -310,14 +197,6 @@ export default function App() {
   return (
     <div className="app">
       {IS_DEV_MOCK && <DevBanner />}
-
-      <ItemNavigator
-        prevItemId={prevItemId}
-        nextItemId={nextItemId}
-        onNavigate={handleNavigate}
-        loading={loading}
-      />
-
       <KpiCards item={item} boardColumns={boardColumns} onSave={handleSave} />
       <FolioSearch item={item} />
       <ItemForm item={item} boardColumns={boardColumns} onSave={handleSave} />
