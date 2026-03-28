@@ -64,12 +64,76 @@ body {
 
 .app {
   padding: 16px;
+  padding-top: 52px; /* espacio para el navegador fijo */
   min-width: 360px;
   max-width: 700px;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+/* ─── Item Navigator ─────────────────────────────────────────────────────── */
+
+.item-nav {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.10);
+  padding: 4px 6px;
+}
+
+.item-nav__pos {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--gray);
+  padding: 0 4px;
+  white-space: nowrap;
+  min-width: 44px;
+  text-align: center;
+}
+
+.item-nav__divider {
+  width: 1px;
+  height: 16px;
+  background: var(--border);
+  margin: 0 2px;
+}
+
+.item-nav__btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: none;
+  border-radius: 6px;
+  color: var(--gray);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+  padding: 0;
+}
+
+.item-nav__btn:hover:not(:disabled) {
+  background: var(--bg);
+  color: var(--blue);
+}
+
+.item-nav__btn:active:not(:disabled) {
+  background: var(--blue-light);
+}
+
+.item-nav__btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
 }
 
 /* ─── Section Title ─────────────────────────────────────────────────────── */
