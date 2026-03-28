@@ -6,7 +6,7 @@ export default defineConfig({
   // base "./" permite que el build funcione desde cualquier ruta relativa
   base: "./",
   build: {
-    outDir: "dist",
+    outDir: "docs",
     sourcemap: false,
   },
   server: {
