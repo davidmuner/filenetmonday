@@ -1,0 +1,20 @@
+{
+  "name": "folio-item-view",
+  "version": "1.0.0",
+  "description": "Monday.com Item View App — Vista de registro con KPI cards, formulario editable y consulta por folio",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "monday-sdk-js": "^0.5.8",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.1",
+    "vite": "^5.4.2"
+  }
+}
