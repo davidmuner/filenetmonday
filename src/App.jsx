@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import mondaySdk from "monday-sdk-js";
 import KpiCards from "./components/KpiCards";
 import ItemForm from "./components/ItemForm";
@@ -50,24 +50,16 @@ function ChevronDown() {
   );
 }
 
-function ItemNavigator({ allItems, currentItemId, onNavigate, loading }) {
-  if (!allItems.length) return null;
-
-  const idx = allItems.findIndex((i) => i.id === String(currentItemId));
-  const total = allItems.length;
-  const hasPrev = idx > 0;
-  const hasNext = idx < total - 1;
+function ItemNavigator({ prevItemId, nextItemId, onNavigate, loading }) {
+  const hasAny = prevItemId || nextItemId;
+  if (!hasAny) return null;
 
   return (
     <div className="item-nav">
-      <span className="item-nav__pos">
-        {idx >= 0 ? `${idx + 1} / ${total}` : `— / ${total}`}
-      </span>
-      <div className="item-nav__divider" />
       <button
         className="item-nav__btn"
-        disabled={!hasPrev || loading}
-        onClick={() => hasPrev && onNavigate(allItems[idx - 1].id)}
+        disabled={!prevItemId || loading}
+        onClick={() => prevItemId && onNavigate(prevItemId)}
         title="Item anterior"
         aria-label="Item anterior"
       >
@@ -75,8 +67,8 @@ function ItemNavigator({ allItems, currentItemId, onNavigate, loading }) {
       </button>
       <button
         className="item-nav__btn"
-        disabled={!hasNext || loading}
-        onClick={() => hasNext && onNavigate(allItems[idx + 1].id)}
+        disabled={!nextItemId || loading}
+        onClick={() => nextItemId && onNavigate(nextItemId)}
         title="Item siguiente"
         aria-label="Item siguiente"
       >
@@ -125,15 +117,20 @@ function ErrorState({ message, onRetry }) {
 // ─── App principal ────────────────────────────────────────────────────────────
 
 export default function App() {
-  const [context, setContext]           = useState(null);
-  const [item, setItem]                 = useState(null);
+  const [context, setContext]         = useState(null);
+  const [item, setItem]               = useState(null);
   const [boardColumns, setBoardColumns] = useState([]);
-  const [allItems, setAllItems]         = useState([]);
-  const [currentItemId, setCurrentItemId] = useState(null);
-  const [loading, setLoading]           = useState(true);
-  const [error, setError]               = useState(null);
+  const [prevItemId, setPrevItemId]   = useState(null);
+  const [nextItemId, setNextItemId]   = useState(null);
+  const [loading, setLoading]         = useState(true);
+  const [error, setError]             = useState(null);
 
-  // ── 1. Contexto desde Monday SDK o mock de desarrollo ──
+  // Ref para evitar que una navegación lenta sobreescriba una más reciente
+  const currentLoadRef = useRef(null);
+
+  // ── 1. Escuchar el contexto de Monday — fuente única de verdad ──
+  // Cuando el usuario abre otro ítem en el tablero, aplica un filtro o
+  // navega en Monday, el SDK dispara este evento con el nuevo itemId.
   useEffect(() => {
     if (IS_DEV_MOCK) {
       setContext({
@@ -150,116 +147,153 @@ export default function App() {
     });
   }, []);
 
-  // ── 2. Al recibir el contexto: fijar item inicial y cargar lista de navegación ──
+  // ── 2. Reaccionar a cada cambio de contexto ──
   useEffect(() => {
     if (!context?.boardId || !context?.itemId) return;
-    setCurrentItemId(String(context.itemId));
-    loadBoardItemIds(context.boardId);
+    const token = Symbol();
+    currentLoadRef.current = token;
+    loadItemData(context.boardId, context.itemId, token);
+    findAdjacentItems(context.boardId, context.itemId); // sin await — corre en paralelo
   }, [context]);
 
-  // ── 3. Cargar datos del item cada vez que cambia el item actual ──
-  useEffect(() => {
-    if (context?.boardId && currentItemId) {
-      loadItemData(context.boardId, currentItemId);
-    }
-  }, [currentItemId]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ── Carga ligera: solo IDs y nombres para el navegador ──
-  const loadBoardItemIds = async (boardId) => {
-    try {
-      const res = await monday.api(`
-        query {
-          boards(ids: [${boardId}]) {
-            items_page(limit: 500) {
-              items { id name }
-            }
-          }
-        }
-      `);
-      const items = res.data?.boards?.[0]?.items_page?.items ?? [];
-      setAllItems(items.map((i) => ({ id: String(i.id), name: i.name })));
-    } catch {
-      // silencioso — la navegación simplemente no aparece
-    }
-  };
-
-  // ── Query completa: item + columnas del tablero ──
-  const loadItemData = async (boardId, itemId) => {
+  // ── Carga de datos del ítem ──
+  const loadItemData = async (boardId, itemId, token) => {
     setLoading(true);
     setError(null);
     try {
       const res = await monday.api(`
         query {
           items(ids: [${itemId}]) {
-            id
-            name
-            column_values {
-              id
-              type
-              text
-              value
-            }
+            id name
+            column_values { id type text value }
           }
           boards(ids: [${boardId}]) {
-            columns {
-              id
-              title
-              type
-              settings_str
-            }
+            columns { id title type settings_str }
           }
         }
       `);
 
-      if (res.errors?.length) throw new Error(res.errors[0].message);
+      // Si mientras cargaba se inició otra navegación, descartar este resultado
+      if (currentLoadRef.current !== token) return;
 
+      if (res.errors?.length) throw new Error(res.errors[0].message);
       const fetchedItem = res.data?.items?.[0];
       const fetchedCols = res.data?.boards?.[0]?.columns ?? [];
       if (!fetchedItem) throw new Error("No se encontró el elemento.");
-
       setItem(fetchedItem);
       setBoardColumns(fetchedCols);
     } catch (err) {
+      if (currentLoadRef.current !== token) return;
       console.error("[FolioItemView] Error cargando datos:", err);
       setError("No se pudieron cargar los datos del registro.");
     } finally {
-      setLoading(false);
+      if (currentLoadRef.current === token) setLoading(false);
     }
   };
 
-  // ── Mutación: guardar cambios usando el item actualmente visible ──
+  // ── Búsqueda de ítems adyacentes con paginación cursor ──
+  // Recorre el tablero página a página (100 ítems/página) hasta encontrar
+  // el ítem actual — sin asumir un límite fijo. Respeta el orden del tablero.
+  const findAdjacentItems = async (boardId, currentId) => {
+    setPrevItemId(null);
+    setNextItemId(null);
+    const PAGE = 100;
+    let cursor = null;
+    let prevId = null;
+    const target = String(currentId);
+
+    try {
+      for (let page = 0; page < 50; page++) { // máx 5 000 ítems como protección
+        const cursorArg = cursor ? `, cursor: "${cursor}"` : "";
+        const res = await monday.api(`
+          query {
+            boards(ids: [${boardId}]) {
+              items_page(limit: ${PAGE}${cursorArg}) {
+                cursor
+                items { id }
+              }
+            }
+          }
+        `);
+
+        const pageData = res.data?.boards?.[0]?.items_page;
+        const items    = pageData?.items ?? [];
+
+        for (let i = 0; i < items.length; i++) {
+          const id = String(items[i].id);
+
+          if (id === target) {
+            // Ítem encontrado — el anterior ya lo tenemos en prevId
+            setPrevItemId(prevId);
+
+            // Siguiente: si es el último del bloque y hay más páginas, pedimos uno más
+            if (i + 1 < items.length) {
+              setNextItemId(String(items[i + 1].id));
+            } else if (pageData?.cursor) {
+              const nextRes = await monday.api(`
+                query {
+                  boards(ids: [${boardId}]) {
+                    items_page(limit: 1, cursor: "${pageData.cursor}") {
+                      items { id }
+                    }
+                  }
+                }
+              `);
+              const first = nextRes.data?.boards?.[0]?.items_page?.items?.[0];
+              setNextItemId(first ? String(first.id) : null);
+            } else {
+              setNextItemId(null);
+            }
+            return; // listo
+          }
+
+          prevId = id;
+        }
+
+        cursor = pageData?.cursor;
+        if (!cursor) break; // fin del tablero
+      }
+    } catch {
+      // silencioso — los botones simplemente no aparecen
+    }
+  };
+
+  // ── Guardar cambios en Monday ──
   const handleSave = async (columnValues) => {
-    const { boardId } = context;
+    const { boardId, itemId } = context;
     const colValsStr = JSON.stringify(columnValues);
 
     const res = await monday.api(`
       mutation {
         change_multiple_column_values(
           board_id: ${boardId},
-          item_id: ${currentItemId},
+          item_id: ${itemId},
           column_values: ${JSON.stringify(colValsStr)}
-        ) {
-          id
-        }
+        ) { id }
       }
     `);
 
     if (res.errors?.length) {
       monday.execute("notice", {
         message: "Error al guardar: " + res.errors[0].message,
-        type: "error",
-        timeout: 4000,
+        type: "error", timeout: 4000,
       });
       throw new Error(res.errors[0].message);
     }
 
     monday.execute("notice", {
       message: "Cambios guardados correctamente",
-      type: "success",
-      timeout: 3000,
+      type: "success", timeout: 3000,
     });
 
-    await loadItemData(boardId, currentItemId);
+    await loadItemData(boardId, itemId, currentLoadRef.current);
+  };
+
+  // ── Navegar a otro ítem ──
+  // Llama al SDK de Monday para que abra el ítem nativo → Monday actualiza
+  // el contexto → nuestro listener lo recibe → la vista se recarga sola.
+  const handleNavigate = (itemId) => {
+    monday.execute("openItemCard", { itemId: Number(itemId) });
   };
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -271,8 +305,8 @@ export default function App() {
       <ErrorState
         message={error}
         onRetry={
-          currentItemId
-            ? () => loadItemData(context.boardId, currentItemId)
+          context
+            ? () => loadItemData(context.boardId, context.itemId, currentLoadRef.current)
             : null
         }
       />
@@ -291,21 +325,15 @@ export default function App() {
     <div className="app">
       {IS_DEV_MOCK && <DevBanner />}
 
-      {/* Navegador de ítems — esquina superior derecha */}
       <ItemNavigator
-        allItems={allItems}
-        currentItemId={currentItemId}
-        onNavigate={setCurrentItemId}
+        prevItemId={prevItemId}
+        nextItemId={nextItemId}
+        onNavigate={handleNavigate}
         loading={loading}
       />
 
-      {/* 1. KPI Cards */}
       <KpiCards item={item} boardColumns={boardColumns} onSave={handleSave} />
-
-      {/* 2. Consulta externa por folio */}
       <FolioSearch item={item} />
-
-      {/* 3. Formulario editable */}
       <ItemForm item={item} boardColumns={boardColumns} onSave={handleSave} />
     </div>
   );
