@@ -29,6 +29,110 @@ const DEV_MOCK_SETTINGS = {
   pipeline_status_col: "estado_mkm8v4ry",
 };
 
+// URL del webhook por defecto cuando no está configurado en settings
+const FALLBACK_FOLIO_API_URL =
+  "https://hook.us1.make.com/qmhc1yz9eptyjdcoug5gm6e6ugfdq9sa";
+
+// Tipos que no deben aparecer como KPI
+const NON_KPI_TYPES = new Set([
+  "name", "subtasks", "formula", "auto_number",
+  "creation_log", "last_updated", "button", "board_relation",
+  "dependency", "mirror",
+]);
+
+// ─── Auto-detección de settings ──────────────────────────────────────────────
+//
+// Toma los rawSettings del Developer Center y los complementa / corrige con
+// detección automática cuando los IDs no coinciden con el tablero actual.
+//
+function resolveSettings(rawSettings, boardColumns, itemColumnValues) {
+  const existingIds = new Set((itemColumnValues ?? []).map((cv) => cv.id));
+
+  // Devuelve el ID solo si existe en el tablero actual
+  const valid = (id) => (id && existingIds.has(id) ? id : null);
+
+  // Busca una columna por texto en el título (case-insensitive, tipo opcional)
+  const findByTitle = (keyword, type = null) =>
+    boardColumns.find(
+      (bc) =>
+        bc.title.toLowerCase().includes(keyword.toLowerCase()) &&
+        (type === null || bc.type === type) &&
+        existingIds.has(bc.id)
+    )?.id ?? null;
+
+  // ── 1. Folio column ───────────────────────────────────────────────────────
+  const folioColId =
+    valid(rawSettings.folio_column_id) ??
+    findByTitle("folio");
+
+  // ── 2. Folio API URL ──────────────────────────────────────────────────────
+  const folioApiUrl = rawSettings.folio_api_url || FALLBACK_FOLIO_API_URL;
+
+  // ── 3. Subtitle column ────────────────────────────────────────────────────
+  const subtitleColId =
+    valid(rawSettings.subtitle_column_id) ??
+    findByTitle("agente", "text") ??
+    null;
+
+  // ── 4. Pipeline status column ─────────────────────────────────────────────
+  const pipelineColId =
+    valid(rawSettings.pipeline_status_col) ??
+    findByTitle("estado", "status") ??
+    boardColumns.find((bc) => bc.type === "status" && existingIds.has(bc.id))?.id ??
+    null;
+
+  // ── 5. KPI columns ────────────────────────────────────────────────────────
+  // Usa los de settings si todos son válidos; de lo contrario auto-detecta.
+  const settingsKpiIds = [
+    rawSettings.kpi_col_1,
+    rawSettings.kpi_col_2,
+    rawSettings.kpi_col_3,
+    rawSettings.kpi_col_4,
+  ].map(valid);
+
+  let kpiIds;
+
+  if (settingsKpiIds.every(Boolean)) {
+    // Todos los settings de KPI apuntan a columnas que existen → úsalos tal cual
+    kpiIds = settingsKpiIds;
+  } else {
+    // Auto-detectar: excluir columnas ya asignadas como folio/subtitle/pipeline
+    const reserved = new Set([folioColId, subtitleColId, pipelineColId].filter(Boolean));
+    const KPI_TYPE_PRIORITY = ["numbers", "status", "text", "dropdown", "email", "link"];
+
+    const candidates = [];
+    for (const type of KPI_TYPE_PRIORITY) {
+      for (const bc of boardColumns) {
+        if (
+          !NON_KPI_TYPES.has(bc.type) &&
+          bc.type === type &&
+          existingIds.has(bc.id) &&
+          !reserved.has(bc.id) &&
+          !candidates.includes(bc.id)
+        ) {
+          candidates.push(bc.id);
+          if (candidates.length >= 4) break;
+        }
+      }
+      if (candidates.length >= 4) break;
+    }
+
+    // Mezcla: usa el setting individual si es válido; si no, toma del auto-detectado
+    kpiIds = settingsKpiIds.map((sid, i) => sid ?? candidates[i] ?? null);
+  }
+
+  return {
+    folio_column_id:     folioColId,
+    folio_api_url:       folioApiUrl,
+    subtitle_column_id:  subtitleColId,
+    pipeline_status_col: pipelineColId,
+    kpi_col_1: kpiIds[0],
+    kpi_col_2: kpiIds[1],
+    kpi_col_3: kpiIds[2],
+    kpi_col_4: kpiIds[3],
+  };
+}
+
 // ─── Dev Banner ───────────────────────────────────────────────────────────────
 
 function DevBanner() {
@@ -115,16 +219,10 @@ export default function App() {
           v && typeof v === "object" && !Array.isArray(v) ? (v.id ?? v.columnId ?? String(v)) : v,
         ])
       );
-      monday.execute("notice", {
-        message: "Settings keys: " + Object.keys(normalized).join(", ") + " | Values: " + JSON.stringify(normalized),
-        type: "info",
-        timeout: 20000,
-      });
       setSettings(normalized);
     });
     monday.listen("settings", (res) => {
       const raw = res.data ?? {};
-      console.log("[FilenetFolio] settings update:", JSON.stringify(raw, null, 2));
       const normalized = Object.fromEntries(
         Object.entries(raw).map(([k, v]) => [
           k,
@@ -235,18 +333,19 @@ export default function App() {
     );
   }
 
+  // Resuelve los settings: usa los configurados si coinciden con este tablero,
+  // de lo contrario auto-detecta las columnas por nombre y tipo.
+  const effectiveSettings = resolveSettings(
+    settings ?? {},
+    boardColumns,
+    item.column_values
+  );
+
   return (
     <div className="app">
       {IS_DEV_MOCK && <DevBanner />}
-      {/* DEBUG TEMPORAL — eliminar después del diagnóstico */}
-      <details style={{ fontSize: 11, background: "#fff3cd", padding: "6px 10px", marginBottom: 8, borderRadius: 6 }}>
-        <summary style={{ cursor: "pointer", fontWeight: 600 }}>🔧 Settings recibidos (debug)</summary>
-        <pre style={{ margin: "4px 0 0", whiteSpace: "pre-wrap", wordBreak: "break-all" }}>
-          {JSON.stringify(settings, null, 2)}
-        </pre>
-      </details>
-      <KpiCards item={item} boardColumns={boardColumns} onSave={handleSave} settings={settings} />
-      <FolioSearch item={item} settings={settings} />
+      <KpiCards item={item} boardColumns={boardColumns} onSave={handleSave} settings={effectiveSettings} />
+      <FolioSearch item={item} settings={effectiveSettings} />
       <ItemForm item={item} boardColumns={boardColumns} onSave={handleSave} />
     </div>
   );

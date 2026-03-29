@@ -242,11 +242,12 @@ export default function KpiCards({ item, boardColumns, onSave, settings }) {
     }
   };
 
-  if (!cards.length) return null;
+  // Siempre mostrar el encabezado aunque no haya cards configuradas
+  if (!cards.length && !item?.name) return null;
 
   return (
     <div className={`kpi-section${visible ? " kpi-section--visible" : ""}`}>
-      {/* Nombre e ítem */}
+      {/* Nombre e ítem — siempre visible */}
       <div className="kpi-header">
         <h1 className="kpi-item-name">{item?.name ?? ""}</h1>
         {subtitleValue && (
@@ -254,7 +255,12 @@ export default function KpiCards({ item, boardColumns, onSave, settings }) {
         )}
       </div>
 
-      {/* Grid 2×2 de KPI cards */}
+      {/* Grid 2×2 de KPI cards — solo si hay columnas configuradas */}
+      {!cards.length && (
+        <p className="kpi-empty-hint">
+          Configura los indicadores en los ajustes de la app para ver las métricas del ítem.
+        </p>
+      )}
       <div className="kpi-grid">
         {cards.map((card, i) => (
           <div

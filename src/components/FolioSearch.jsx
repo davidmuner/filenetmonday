@@ -34,6 +34,11 @@ export default function FolioSearch({ item, settings }) {
     const q = query.trim();
     if (!q) return;
 
+    if (!settings?.folio_api_url) {
+      setError("Configura la URL del webhook en los ajustes de la app (⚙ Settings).");
+      return;
+    }
+
     setLoading(true);
     setError(null);
     setResult(null);
