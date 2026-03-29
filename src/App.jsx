@@ -108,9 +108,20 @@ export default function App() {
       }
     });
     monday.get("settings").then((res) => {
-      // Los campos Column devuelven el ID directamente como string.
-      // Si por alguna razón devuelven un objeto, extraemos el ID.
       const raw = res.data ?? {};
+      console.log("[FilenetFolio] settings raw:", JSON.stringify(raw, null, 2));
+      const normalized = Object.fromEntries(
+        Object.entries(raw).map(([k, v]) => [
+          k,
+          v && typeof v === "object" && !Array.isArray(v) ? (v.id ?? v.columnId ?? String(v)) : v,
+        ])
+      );
+      console.log("[FilenetFolio] settings normalized:", JSON.stringify(normalized, null, 2));
+      setSettings(normalized);
+    });
+    monday.listen("settings", (res) => {
+      const raw = res.data ?? {};
+      console.log("[FilenetFolio] settings update:", JSON.stringify(raw, null, 2));
       const normalized = Object.fromEntries(
         Object.entries(raw).map(([k, v]) => [
           k,
