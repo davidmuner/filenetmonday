@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
-import { FOLIO_API_URL, FOLIO_COLUMN_ID, API_VISIBLE_FIELDS } from "../config";
+
+const API_VISIBLE_FIELDS = 4;
 
 /**
  * Normaliza el valor de un campo de la respuesta API para mostrarlo legible.
@@ -22,7 +23,7 @@ function ResultField({ label, value, highlight }) {
   );
 }
 
-export default function FolioSearch({ item }) {
+export default function FolioSearch({ item, settings }) {
   const [folio, setFolio] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);   // objeto plano con los datos
@@ -40,7 +41,7 @@ export default function FolioSearch({ item }) {
 
     try {
       const res = await fetch(
-        `${FOLIO_API_URL}?folio=${encodeURIComponent(q)}`
+        `${settings.folio_api_url}?folio=${encodeURIComponent(q)}`
       );
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
@@ -61,17 +62,17 @@ export default function FolioSearch({ item }) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [settings]);
 
   // Auto-fill y auto-búsqueda cuando el ítem tiene valor en la columna de folio
   useEffect(() => {
-    if (!item) return;
-    const cv = item.column_values?.find((c) => c.id === FOLIO_COLUMN_ID);
+    if (!item || !settings?.folio_column_id) return;
+    const cv = item.column_values?.find((c) => c.id === settings.folio_column_id);
     const value = cv?.text?.trim();
     if (!value) return;
     setFolio(value);
     search(value);
-  }, [item, search]);
+  }, [item, settings, search]);
 
   const handleSearch = () => search(folio);
 

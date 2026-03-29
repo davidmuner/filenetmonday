@@ -16,6 +16,19 @@ if (IS_DEV_MOCK && import.meta.env.VITE_DEV_API_TOKEN) {
   monday.setToken(import.meta.env.VITE_DEV_API_TOKEN);
 }
 
+// Settings de desarrollo — equivalen a la configuración del tablero "Folios".
+// En producción estos valores vienen de monday.get("settings") (Developer Center).
+const DEV_MOCK_SETTINGS = {
+  folio_column_id:     "folio_mkm8zvz3",
+  folio_api_url:       "https://hook.us1.make.com/qmhc1yz9eptyjdcoug5gm6e6ugfdq9sa",
+  subtitle_column_id:  "agente_mkm8symv",
+  kpi_col_1:           "soluci_n_mkm819r",
+  kpi_col_2:           "ejecutivo_mkm8dzk6",
+  kpi_col_3:           "__posible_cierre_mkm8xq51",
+  kpi_col_4:           "prima_cotizaci_n_mkm8efja",
+  pipeline_status_col: "estado_mkm8v4ry",
+};
+
 // ─── Dev Banner ───────────────────────────────────────────────────────────────
 
 function DevBanner() {
@@ -70,6 +83,7 @@ function ErrorState({ message, onRetry }) {
 
 export default function App() {
   const [context, setContext]           = useState(null);
+  const [settings, setSettings]         = useState(null);
   const [item, setItem]                 = useState(null);
   const [boardColumns, setBoardColumns] = useState([]);
   const [loading, setLoading]           = useState(true);
@@ -77,13 +91,14 @@ export default function App() {
 
   const loadTokenRef = useRef(null);
 
-  // ── Contexto desde Monday SDK o mock de desarrollo ──
+  // ── Contexto y settings desde Monday SDK o mock de desarrollo ──
   useEffect(() => {
     if (IS_DEV_MOCK) {
       setContext({
         boardId: import.meta.env.VITE_DEV_BOARD_ID,
         itemId:  import.meta.env.VITE_DEV_ITEM_ID,
       });
+      setSettings(DEV_MOCK_SETTINGS);
       return;
     }
     monday.listen("context", (res) => {
@@ -92,15 +107,27 @@ export default function App() {
         setContext({ boardId: String(boardId), itemId: String(itemId) });
       }
     });
+    monday.get("settings").then((res) => {
+      // Los campos Column devuelven el ID directamente como string.
+      // Si por alguna razón devuelven un objeto, extraemos el ID.
+      const raw = res.data ?? {};
+      const normalized = Object.fromEntries(
+        Object.entries(raw).map(([k, v]) => [
+          k,
+          v && typeof v === "object" && !Array.isArray(v) ? (v.id ?? v.columnId ?? String(v)) : v,
+        ])
+      );
+      setSettings(normalized);
+    });
   }, []);
 
-  // ── Cargar datos cada vez que cambia el contexto ──
+  // ── Cargar datos cuando hay contexto Y settings disponibles ──
   useEffect(() => {
-    if (!context?.boardId || !context?.itemId) return;
+    if (!context?.boardId || !context?.itemId || !settings) return;
     const token = Symbol();
     loadTokenRef.current = token;
     loadItemData(context.boardId, context.itemId, token);
-  }, [context]);
+  }, [context, settings]);
 
   const loadItemData = async (boardId, itemId, token) => {
     setLoading(true);
@@ -197,8 +224,8 @@ export default function App() {
   return (
     <div className="app">
       {IS_DEV_MOCK && <DevBanner />}
-      <KpiCards item={item} boardColumns={boardColumns} onSave={handleSave} />
-      <FolioSearch item={item} />
+      <KpiCards item={item} boardColumns={boardColumns} onSave={handleSave} settings={settings} />
+      <FolioSearch item={item} settings={settings} />
       <ItemForm item={item} boardColumns={boardColumns} onSave={handleSave} />
     </div>
   );

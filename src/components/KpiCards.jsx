@@ -1,5 +1,48 @@
 import { useEffect, useState } from "react";
-import { KPI_COLUMNS, PIPELINE_STATUS, SUBTITLE_COLUMN_ID } from "../config";
+
+// Colores e íconos por defecto para cada posición KPI (1-4)
+const KPI_COLORS   = ["#0073ea", "#e67e22", "#9b59b6", "#00c875"];
+const KPI_ICONS    = ["status", "person", "percent", "money"];
+
+/**
+ * Intenta derivar un ícono apropiado según el tipo de columna de Monday.
+ */
+function guessIcon(type) {
+  const map = {
+    status: "status",
+    color:  "status",
+    numbers: "money",
+    date:   "calendar",
+    people: "person",
+    text:   "tag",
+  };
+  return map[type] ?? "tag";
+}
+
+/**
+ * Deriva las opciones del pipeline a partir del settings_str de la columna status.
+ */
+function derivePipelineOptions(boardCol) {
+  if (!boardCol?.settings_str) return [];
+  try {
+    const s = JSON.parse(boardCol.settings_str);
+    return Object.entries(s.labels ?? {}).map(([idx, label]) => ({
+      label,
+      icon:  getPipelineIcon(label),
+      color: s.labels_colors?.[idx]?.color ?? "#0073ea",
+    }));
+  } catch {
+    return [];
+  }
+}
+
+function getPipelineIcon(label) {
+  const l = label.toLowerCase();
+  if (l.includes("pend") || l.includes("progres") || l.includes("proceso")) return "clock";
+  if (l.includes("gan") || l.includes("win") || l.includes("done") || l.includes("complet")) return "check";
+  if (l.includes("perd") || l.includes("lost") || l.includes("cancel") || l.includes("fail")) return "x";
+  return "status";
+}
 
 /**
  * Busca el index numérico de Monday para un label de estado dado,
@@ -123,10 +166,10 @@ function formatKpiValue(cv) {
 
 // ─── Componente principal ─────────────────────────────────────────────────────
 
-export default function KpiCards({ item, boardColumns, onSave }) {
+export default function KpiCards({ item, boardColumns, onSave, settings }) {
   const [visible, setVisible] = useState(false);
-  const [savingStatus, setSavingStatus] = useState(false); // guardando estado
-  const [savedOk, setSavedOk] = useState(false);           // feedback éxito
+  const [savingStatus, setSavingStatus] = useState(false);
+  const [savedOk, setSavedOk] = useState(false);
 
   useEffect(() => {
     const t = setTimeout(() => setVisible(true), 60);
@@ -140,36 +183,58 @@ export default function KpiCards({ item, boardColumns, onSave }) {
   const boardColMap = {};
   boardColumns?.forEach((bc) => { boardColMap[bc.id] = bc; });
 
-  // Subtítulo desde columna configurable
-  const subtitleValue = SUBTITLE_COLUMN_ID
-    ? colValueMap[SUBTITLE_COLUMN_ID]?.text?.trim() ?? null
+  // Subtítulo desde columna configurada en settings
+  const subtitleValue = settings.subtitle_column_id
+    ? colValueMap[settings.subtitle_column_id]?.text?.trim() ?? null
     : null;
 
-  // KPI cards
-  const cards = KPI_COLUMNS.map((kpi) => {
-    const cv = colValueMap[kpi.id];
-    if (!cv) return null;
-    const boardCol = boardColMap[kpi.id];
-    const isStatus = cv.type === "status";
-    const accentColor = isStatus
-      ? getStatusColor(cv, boardCol)
-      : kpi.color ?? "#0073ea";
-    return { ...kpi, cv, accentColor, isStatus };
-  }).filter(Boolean);
+  // KPI cards derivadas de settings + títulos del tablero
+  const kpiColumnIds = [
+    settings.kpi_col_1,
+    settings.kpi_col_2,
+    settings.kpi_col_3,
+    settings.kpi_col_4,
+  ];
 
-  // Estado del pipeline
-  const statusCv = colValueMap[PIPELINE_STATUS.columnId];
+  const cards = kpiColumnIds
+    .map((colId, i) => {
+      if (!colId) return null;
+      const cv = colValueMap[colId];
+      if (!cv) return null;
+      const boardCol = boardColMap[colId];
+      const isStatus = cv.type === "status";
+      const icon = guessIcon(boardCol?.type) ?? KPI_ICONS[i];
+      const accentColor = isStatus
+        ? getStatusColor(cv, boardCol)
+        : KPI_COLORS[i];
+      return {
+        id:    colId,
+        label: boardCol?.title ?? colId,
+        icon,
+        accentColor,
+        isStatus,
+        cv,
+      };
+    })
+    .filter(Boolean);
+
+  // Pipeline status derivado de settings + settings_str de la columna
+  const pipelineColumnId = settings.pipeline_status_col;
+  const pipelineBoardCol = boardColMap[pipelineColumnId];
+  const pipelineOptions  = derivePipelineOptions(pipelineBoardCol);
+  const pipelineLabel    = pipelineBoardCol?.title ?? "Estado del Pipeline";
+
+  const statusCv = colValueMap[pipelineColumnId];
   const currentStatusLabel = statusCv?.text?.trim().toLowerCase() ?? "";
 
   const handleStatusClick = async (opt) => {
     if (!onSave || savingStatus) return;
-    const boardCol = boardColMap[PIPELINE_STATUS.columnId];
-    const index = findStatusIndex(opt.label, boardCol);
+    const index = findStatusIndex(opt.label, pipelineBoardCol);
     if (index === null) return;
     setSavingStatus(true);
     setSavedOk(false);
     try {
-      await onSave({ [PIPELINE_STATUS.columnId]: { index } });
+      await onSave({ [pipelineColumnId]: { index } });
       setSavedOk(true);
       setTimeout(() => setSavedOk(false), 2000);
     } finally {
@@ -218,12 +283,10 @@ export default function KpiCards({ item, boardColumns, onSave }) {
       </div>
 
       {/* Estado del pipeline */}
-      {PIPELINE_STATUS.options.length > 0 && (
+      {pipelineOptions.length > 0 && (
         <div className="pipeline-status">
           <div className="pipeline-status__header">
-            <p className="pipeline-status__title">
-              {PIPELINE_STATUS.sectionLabel}
-            </p>
+            <p className="pipeline-status__title">{pipelineLabel}</p>
             {savingStatus && (
               <span className="ps-saving">
                 <span className="search-spinner" />
@@ -237,8 +300,8 @@ export default function KpiCards({ item, boardColumns, onSave }) {
           </div>
 
           <div className="pipeline-status__options">
-            {PIPELINE_STATUS.options.map((opt) => {
-              const isActive = currentStatusLabel === opt.label.toLowerCase();
+            {pipelineOptions.map((opt) => {
+              const isActive   = currentStatusLabel === opt.label.toLowerCase();
               const isDisabled = savingStatus;
               return (
                 <button
