@@ -235,6 +235,13 @@ export default function App() {
   return (
     <div className="app">
       {IS_DEV_MOCK && <DevBanner />}
+      {/* DEBUG TEMPORAL — eliminar después del diagnóstico */}
+      <details style={{ fontSize: 11, background: "#fff3cd", padding: "6px 10px", marginBottom: 8, borderRadius: 6 }}>
+        <summary style={{ cursor: "pointer", fontWeight: 600 }}>🔧 Settings recibidos (debug)</summary>
+        <pre style={{ margin: "4px 0 0", whiteSpace: "pre-wrap", wordBreak: "break-all" }}>
+          {JSON.stringify(settings, null, 2)}
+        </pre>
+      </details>
       <KpiCards item={item} boardColumns={boardColumns} onSave={handleSave} settings={settings} />
       <FolioSearch item={item} settings={settings} />
       <ItemForm item={item} boardColumns={boardColumns} onSave={handleSave} />
