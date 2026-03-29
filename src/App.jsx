@@ -223,7 +223,6 @@ function ErrorState({ message, onRetry }) {
 export default function App() {
   const [context, setContext]           = useState(null);
   const [settings, setSettings]         = useState(null);
-  const [rawSettingsDebug, setRawSettingsDebug] = useState(null);
   const [item, setItem]                 = useState(null);
   const [boardColumns, setBoardColumns] = useState([]);
   const [loading, setLoading]           = useState(true);
@@ -249,8 +248,6 @@ export default function App() {
     });
     monday.get("settings").then((res) => {
       const raw = res.data ?? {};
-      // Guardar el raw ANTES de normalizar para diagnóstico
-      setRawSettingsDebug(JSON.stringify(raw, null, 2));
       setSettings(normalizeSettings(raw));
     });
     monday.listen("settings", (res) => {
@@ -370,15 +367,6 @@ export default function App() {
   return (
     <div className="app">
       {IS_DEV_MOCK && <DevBanner />}
-      {/* DEBUG TEMPORAL — muestra las claves recibidas de Ajustes */}
-      <details style={{ fontSize: 11, background: "#e8f4fd", padding: "6px 10px", marginBottom: 8, borderRadius: 6, border: "1px solid #b3d7f5" }}>
-        <summary style={{ cursor: "pointer", fontWeight: 600 }}>🔍 Debug: settings recibidos de Ajustes</summary>
-        <pre style={{ margin: "4px 0 0", whiteSpace: "pre-wrap", wordBreak: "break-all", fontSize: 10 }}>
-          PRE-NORMALIZE (monday.get raw):{"\n"}{rawSettingsDebug ?? "(aún no cargado)"}{"\n\n"}
-          POST-NORMALIZE:{"\n"}{JSON.stringify(settings, null, 2)}{"\n\n"}
-          EFFECTIVE:{"\n"}{JSON.stringify(effectiveSettings, null, 2)}
-        </pre>
-      </details>
       <KpiCards item={item} boardColumns={boardColumns} onSave={handleSave} settings={effectiveSettings} />
       <FolioSearch item={item} settings={effectiveSettings} />
       <ItemForm item={item} boardColumns={boardColumns} onSave={handleSave} />

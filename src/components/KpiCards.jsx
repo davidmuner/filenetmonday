@@ -26,11 +26,13 @@ function derivePipelineOptions(boardCol) {
   if (!boardCol?.settings_str) return [];
   try {
     const s = JSON.parse(boardCol.settings_str);
-    return Object.entries(s.labels ?? {}).map(([idx, label]) => ({
-      label,
-      icon:  getPipelineIcon(label),
-      color: s.labels_colors?.[idx]?.color ?? "#0073ea",
-    }));
+    return Object.entries(s.labels ?? {})
+      .filter(([, label]) => label && label.trim())
+      .map(([idx, label]) => ({
+        label,
+        icon:  getPipelineIcon(label),
+        color: s.labels_colors?.[idx]?.color ?? "#0073ea",
+      }));
   } catch {
     return [];
   }
