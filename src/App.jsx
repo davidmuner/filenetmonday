@@ -49,18 +49,13 @@ function extractColumnId(v) {
   if (!v) return null;
   if (typeof v === "string") return v || null;
   if (typeof v !== "object" || Array.isArray(v)) return null;
-  // Intentar todas las propiedades conocidas de los column-pickers de Monday
-  const id =
-    v.id ??
-    v.columnId ??
-    v.column_id ??
-    v.value ??
-    v.fieldId ??
-    v.column?.id ??
-    null;
+  // Formato real de Monday column-picker: { "column_id": true }
+  // El ID de la columna es la clave cuyo valor es true
+  const trueKey = Object.keys(v).find((k) => v[k] === true);
+  if (trueKey) return trueKey;
+  // Fallback para otras versiones del SDK
+  const id = v.id ?? v.columnId ?? v.column_id ?? v.value ?? v.fieldId ?? v.column?.id ?? null;
   if (id && typeof id === "string") return id;
-  // Si ninguna funciona, loggear la estructura para diagnóstico
-  console.warn("[FilenetFolio] column-picker con estructura desconocida:", JSON.stringify(v));
   return null;
 }
 
