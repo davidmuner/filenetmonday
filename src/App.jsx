@@ -40,6 +40,39 @@ const NON_KPI_TYPES = new Set([
   "dependency", "mirror",
 ]);
 
+// ─── Normalización de settings de Monday ─────────────────────────────────────
+//
+// El column-picker de Monday puede devolver el ID de varias formas según la
+// versión del SDK. Esta función extrae el ID de la columna sin importar el formato.
+//
+function extractColumnId(v) {
+  if (!v) return null;
+  if (typeof v === "string") return v || null;
+  if (typeof v !== "object" || Array.isArray(v)) return null;
+  // Intentar todas las propiedades conocidas de los column-pickers de Monday
+  const id =
+    v.id ??
+    v.columnId ??
+    v.column_id ??
+    v.value ??
+    v.fieldId ??
+    v.column?.id ??
+    null;
+  if (id && typeof id === "string") return id;
+  // Si ninguna funciona, loggear la estructura para diagnóstico
+  console.warn("[FilenetFolio] column-picker con estructura desconocida:", JSON.stringify(v));
+  return null;
+}
+
+function normalizeSettings(raw) {
+  return Object.fromEntries(
+    Object.entries(raw).map(([k, v]) => [
+      k,
+      v && typeof v === "object" && !Array.isArray(v) ? extractColumnId(v) : v,
+    ])
+  );
+}
+
 // ─── Auto-detección de settings ──────────────────────────────────────────────
 //
 // Toma los rawSettings del Developer Center y los complementa / corrige con
@@ -220,23 +253,13 @@ export default function App() {
     });
     monday.get("settings").then((res) => {
       const raw = res.data ?? {};
-      const normalized = Object.fromEntries(
-        Object.entries(raw).map(([k, v]) => [
-          k,
-          v && typeof v === "object" && !Array.isArray(v) ? (v.id ?? v.columnId ?? String(v)) : v,
-        ])
-      );
-      setSettings(normalized);
+      // Log del objeto crudo antes de normalizar (para diagnosticar el formato exacto)
+      console.log("[FilenetFolio] raw settings:", JSON.stringify(raw, null, 2));
+      setSettings(normalizeSettings(raw));
     });
     monday.listen("settings", (res) => {
       const raw = res.data ?? {};
-      const normalized = Object.fromEntries(
-        Object.entries(raw).map(([k, v]) => [
-          k,
-          v && typeof v === "object" && !Array.isArray(v) ? (v.id ?? v.columnId ?? String(v)) : v,
-        ])
-      );
-      setSettings(normalized);
+      setSettings(normalizeSettings(raw));
     });
   }, []);
 
