@@ -143,7 +143,7 @@ export default function App() {
             columns { id title type settings_str }
           }
         }
-      `);
+      `, { apiVersion: "2024-01" });
       if (loadTokenRef.current !== token) return;
       if (res.errors?.length) throw new Error(res.errors[0].message);
       const fetchedItem = res.data?.items?.[0];
