@@ -109,14 +109,17 @@ export default function App() {
     });
     monday.get("settings").then((res) => {
       const raw = res.data ?? {};
-      console.log("[FilenetFolio] settings raw:", JSON.stringify(raw, null, 2));
       const normalized = Object.fromEntries(
         Object.entries(raw).map(([k, v]) => [
           k,
           v && typeof v === "object" && !Array.isArray(v) ? (v.id ?? v.columnId ?? String(v)) : v,
         ])
       );
-      console.log("[FilenetFolio] settings normalized:", JSON.stringify(normalized, null, 2));
+      monday.execute("notice", {
+        message: "Settings keys: " + Object.keys(normalized).join(", ") + " | Values: " + JSON.stringify(normalized),
+        type: "info",
+        timeout: 20000,
+      });
       setSettings(normalized);
     });
     monday.listen("settings", (res) => {
