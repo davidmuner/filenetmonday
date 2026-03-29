@@ -82,21 +82,24 @@ function resolveSettings(rawSettings, boardColumns, itemColumnValues) {
     null;
 
   // ── 5. KPI columns ────────────────────────────────────────────────────────
-  // Usa los de settings si todos son válidos; de lo contrario auto-detecta.
-  const settingsKpiIds = [
+  // Si el usuario configuró al menos un KPI en Ajustes → respetar su selección
+  // (nunca mezclar settings con auto-detección).
+  // Si no configuró ninguno → auto-detectar 4 columnas.
+  const rawKpiIds = [
     rawSettings.kpi_col_1,
     rawSettings.kpi_col_2,
     rawSettings.kpi_col_3,
     rawSettings.kpi_col_4,
-  ].map(valid);
+  ];
+  const hasAnyConfiguredKpi = rawKpiIds.some(Boolean);
 
   let kpiIds;
 
-  if (settingsKpiIds.every(Boolean)) {
-    // Todos los settings de KPI apuntan a columnas que existen → úsalos tal cual
-    kpiIds = settingsKpiIds;
+  if (hasAnyConfiguredKpi) {
+    // Respetar configuración del usuario; los no configurados quedan null
+    kpiIds = rawKpiIds.map(valid);
   } else {
-    // Auto-detectar: excluir columnas ya asignadas como folio/subtitle/pipeline
+    // Sin configuración → auto-detectar por tipo (numbers > status > text...)
     const reserved = new Set([folioColId, subtitleColId, pipelineColId].filter(Boolean));
     const KPI_TYPE_PRIORITY = ["numbers", "status", "text", "dropdown", "email", "link"];
 
@@ -117,8 +120,12 @@ function resolveSettings(rawSettings, boardColumns, itemColumnValues) {
       if (candidates.length >= 4) break;
     }
 
-    // Mezcla: usa el setting individual si es válido; si no, toma del auto-detectado
-    kpiIds = settingsKpiIds.map((sid, i) => sid ?? candidates[i] ?? null);
+    kpiIds = [
+      candidates[0] ?? null,
+      candidates[1] ?? null,
+      candidates[2] ?? null,
+      candidates[3] ?? null,
+    ];
   }
 
   return {
@@ -344,6 +351,14 @@ export default function App() {
   return (
     <div className="app">
       {IS_DEV_MOCK && <DevBanner />}
+      {/* DEBUG TEMPORAL — muestra las claves recibidas de Ajustes */}
+      <details style={{ fontSize: 11, background: "#e8f4fd", padding: "6px 10px", marginBottom: 8, borderRadius: 6, border: "1px solid #b3d7f5" }}>
+        <summary style={{ cursor: "pointer", fontWeight: 600 }}>🔍 Debug: settings recibidos de Ajustes</summary>
+        <pre style={{ margin: "4px 0 0", whiteSpace: "pre-wrap", wordBreak: "break-all", fontSize: 10 }}>
+          RAW: {JSON.stringify(settings, null, 2)}{"\n\n"}
+          EFFECTIVE: {JSON.stringify(effectiveSettings, null, 2)}
+        </pre>
+      </details>
       <KpiCards item={item} boardColumns={boardColumns} onSave={handleSave} settings={effectiveSettings} />
       <FolioSearch item={item} settings={effectiveSettings} />
       <ItemForm item={item} boardColumns={boardColumns} onSave={handleSave} />
